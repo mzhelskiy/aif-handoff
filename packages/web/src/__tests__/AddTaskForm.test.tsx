@@ -93,6 +93,30 @@ describe("AddTaskForm", () => {
     mockParticipantsData.data = [];
   });
 
+  it("seeds saved project stages and preserves them when changing planning mode", () => {
+    mockProjectsData.data = [
+      {
+        id: "p-1",
+        parallelEnabled: false,
+        defaultSkipReview: false,
+        defaultRunPlanImprove: true,
+        defaultRunPostVerify: true,
+      },
+    ];
+    render(<AddTaskForm projectId="p-1" />);
+    fireEvent.click(screen.getByText("Add task"));
+    fireEvent.change(screen.getByPlaceholderText("Task title"), {
+      target: { value: "Project defaults" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Planner settings" }));
+    fireEvent.click(screen.getByLabelText("Full"));
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(mutateCreateTask).toHaveBeenCalledWith(
+      expect.objectContaining({ skipReview: false, runPlanImprove: true, runPostVerify: true }),
+      expect.any(Object),
+    );
+  });
+
   it("creates a human-owned task with selected assignees in Participants Mode", async () => {
     mockAuthSession.participantsModeEnabled = true;
     mockAuthSession.authenticated = true;

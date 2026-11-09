@@ -15,6 +15,7 @@ const sizeClasses = {
 };
 
 interface SelectProps {
+  "aria-label"?: string;
   value?: string;
   options: { value: string; label: string }[];
   onChange?: (e: { target: { value: string } }) => void;
@@ -31,6 +32,7 @@ interface SelectProps {
 const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
   (
     {
+      "aria-label": ariaLabel,
       className,
       options,
       value,
@@ -136,6 +138,7 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(
             ref={setTriggerRef}
             type="button"
             disabled={disabled}
+            aria-label={ariaLabel}
             aria-haspopup="listbox"
             aria-expanded={open}
             onClick={() =>

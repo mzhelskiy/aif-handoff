@@ -24,6 +24,7 @@ export {
   type GitHubIssueLink,
   type UpdateProjectOrganizationInput,
   type CreateProjectInput,
+  type ProjectBranchOptions,
   type UpdateProjectInput,
   type AppSettings,
   type UpdateAppSettingsInput,

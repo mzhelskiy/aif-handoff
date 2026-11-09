@@ -10,6 +10,7 @@ import type {
   Project,
   ProjectTaskOverview,
   CreateProjectInput,
+  ProjectBranchOptions,
   UpdateProjectOrganizationInput,
   ChatRequest,
   ChatSession,
@@ -96,6 +97,8 @@ export interface AifConfig {
 
 /** Mirrors `AifProjectTaskDefaults` in @aif/shared — every flag is optional. */
 export interface ProjectTaskDefaults {
+  runPlanImprove?: boolean;
+  runPostVerify?: boolean;
   autoMode?: boolean;
   plannerMode?: "fast" | "full";
   skipReview?: boolean;
@@ -537,6 +540,12 @@ export const api = {
 
   listProjectTaskOverviews(): Promise<ProjectTaskOverview[]> {
     return request<ProjectTaskOverview[]>("/projects/overview");
+  },
+
+  getProjectBranches(rootPath: string, projectId?: string): Promise<ProjectBranchOptions> {
+    return request<ProjectBranchOptions>(
+      `/projects/branches?rootPath=${encodeURIComponent(rootPath)}${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ""}`,
+    );
   },
 
   createProject(input: CreateProjectInput): Promise<Project> {

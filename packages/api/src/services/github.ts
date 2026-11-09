@@ -103,6 +103,7 @@ export async function cloneGitHubRepository(input: {
   repository: string;
   destination: string;
   token: string;
+  branch?: string;
 }): Promise<void> {
   const startedAt = Date.now();
   const remoteUrl = `https://github.com/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repository)}.git`;
@@ -123,7 +124,10 @@ export async function cloneGitHubRepository(input: {
   };
 
   try {
-    await runGitClone(["clone", remoteUrl, input.destination], environment);
+    await runGitClone(
+      ["clone", ...(input.branch ? ["--branch", input.branch] : []), remoteUrl, input.destination],
+      environment,
+    );
     log.info(
       {
         owner: input.owner,

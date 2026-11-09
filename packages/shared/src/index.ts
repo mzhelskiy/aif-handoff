@@ -97,6 +97,7 @@ export {
   type GitHubIssueLink,
   type UpdateProjectOrganizationInput,
   type CreateProjectInput,
+  type ProjectBranchOptions,
   type UpdateProjectInput,
   type AppSettings,
   type UpdateAppSettingsInput,
@@ -236,6 +237,7 @@ export {
   countCommitsBetween,
   describeDirtyWorkingTree,
   ensureFeatureBranch,
+  ensureProjectWorkingBranch,
   ensureTaskWorktree,
   getCurrentBranch,
   getHeadCommitSha,
@@ -282,6 +284,7 @@ export {
 // Project config (config.yaml)
 export {
   getProjectConfig,
+  resolveProjectStageDefaults,
   clearProjectConfigCache,
   type AifProjectConfig,
   type AifProjectPaths,

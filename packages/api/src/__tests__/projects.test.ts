@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -183,6 +184,166 @@ describe("projects API", () => {
       callback(null);
       return {};
     });
+  });
+
+  it("lists and persists local working branches without switching the checkout", async () => {
+    const rootPath = mkdtempSync("/tmp/aif-project-branch-");
+    const git = (args: string[]) =>
+      execFileSync("git", args, { cwd: rootPath, encoding: "utf8" }).trim();
+    try {
+      git(["init", "-b", "main"]);
+      git([
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "fixture",
+      ]);
+      git(["branch", "develop"]);
+      const branches = await app.request(
+        `/projects/branches?rootPath=${encodeURIComponent(rootPath)}`,
+      );
+      expect(branches.status).toBe(200);
+      expect(await branches.json()).toEqual({
+        isRepository: true,
+        currentBranch: "main",
+        branches: ["develop", "main"],
+        workingBranch: null,
+      });
+      const create = await app.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Fixed", rootPath, workingBranch: "develop" }),
+      });
+      expect(create.status).toBe(201);
+      const project = await create.json();
+      expect(project.workingBranch).toBe("develop");
+      expect(git(["branch", "--show-current"])).toBe("main");
+      const update = (fields: object) =>
+        app.request(`/projects/${project.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Fixed edited", rootPath, ...fields }),
+        });
+      expect((await (await update({})).json()).workingBranch).toBe("develop");
+      expect((await update({ workingBranch: "absent" })).status).toBe(400);
+      expect((await update({ parallelEnabled: true })).status).toBe(400);
+      const loaded = await app.request(
+        `/projects/branches?rootPath=${encodeURIComponent(rootPath)}&projectId=${project.id}`,
+      );
+      expect((await loaded.json()).workingBranch).toBe("develop");
+      testDb.current
+        .insert(tasks)
+        .values({
+          id: "branch-locked",
+          projectId: project.id,
+          title: "Running",
+          status: "planning",
+          lockedBy: "coordinator",
+          lockedUntil: new Date(Date.now() + 60_000).toISOString(),
+        })
+        .run();
+      expect((await update({ workingBranch: null })).status).toBe(409);
+      expect((await update({ workingBranch: "develop" })).status).toBe(200);
+      testDb.current.delete(tasks).run();
+      expect((await (await update({ workingBranch: null })).json()).workingBranch).toBeNull();
+      expect(git(["branch", "--show-current"])).toBe("main");
+    } finally {
+      rmSync(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("validates branch discovery paths and rejects branches for a non-repository", async () => {
+    expect((await app.request("/projects/branches")).status).toBe(400);
+    const rootPath = mkdtempSync("/tmp/aif-not-repo-");
+    try {
+      const options = await app.request(
+        `/projects/branches?rootPath=${encodeURIComponent(rootPath)}`,
+      );
+      expect((await options.json()).isRepository).toBe(false);
+      const create = await app.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Invalid", rootPath, workingBranch: "main" }),
+      });
+      expect(create.status).toBe(400);
+      expect(await (await app.request("/projects")).json()).toEqual([]);
+    } finally {
+      rmSync(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("saves board and stage settings, inherits them in REST tasks and broadcasts updates", async () => {
+    const created = await app.request("/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "Workflow",
+        rootPath: "/tmp/workflow",
+        boardLayout: "detailed",
+        defaultSkipReview: true,
+        defaultRunPlanImprove: true,
+        defaultRunPostVerify: true,
+      }),
+    });
+    expect(created.status).toBe(201);
+    const project = await created.json();
+    expect(project).toMatchObject({
+      boardLayout: "detailed",
+      defaultSkipReview: true,
+      defaultRunPlanImprove: true,
+      defaultRunPostVerify: true,
+    });
+    const defaults = await app.request(`/projects/${project.id}/defaults`);
+    expect((await defaults.json()).taskDefaults).toMatchObject({
+      skipReview: true,
+      runPlanImprove: true,
+      runPostVerify: true,
+    });
+    const { tasksRouter } = await import("../routes/tasks.js");
+    const taskApp = new Hono().route("/tasks", tasksRouter);
+    const task = await taskApp.request("/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId: project.id, title: "Inherit stage choices", paused: true }),
+    });
+    expect(task.status).toBe(201);
+    expect(await task.json()).toMatchObject({
+      skipReview: true,
+      runPlanImprove: true,
+      runPostVerify: true,
+    });
+    const update = (input: object) =>
+      app.request(`/projects/${project.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: project.name, rootPath: project.rootPath, ...input }),
+      });
+    expect((await (await update({ boardLayout: "compact" })).json()).defaultRunPlanImprove).toBe(
+      true,
+    );
+    expect(mockBroadcast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "project:updated",
+        payload: expect.objectContaining({ id: project.id, boardLayout: "compact" }),
+      }),
+    );
+    expect((await update({ boardLayout: "invalid" })).status).toBe(400);
+    expect((await update({ defaultSkipReview: "false" })).status).toBe(400);
+    expect(
+      (
+        await (
+          await update({
+            defaultSkipReview: null,
+            defaultRunPlanImprove: null,
+            defaultRunPostVerify: null,
+          })
+        ).json()
+      ).defaultSkipReview,
+    ).toBeNull();
   });
 
   it("returns projects list", async () => {

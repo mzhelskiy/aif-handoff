@@ -5,6 +5,7 @@ import {
   type TaskListItem,
   type TaskStatus,
 } from "@aif/shared/browser";
+import { useProjects } from "@/hooks/useProjects";
 import { useTasks } from "@/hooks/useTasks";
 import { Column } from "./Column";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,25 @@ interface BoardProps {
   density: "comfortable" | "compact";
   viewMode?: ViewMode;
 }
+
+const COMPACT_COLUMNS: Array<{
+  status: TaskStatus;
+  label: string;
+  statuses: TaskStatus[];
+  hideWhenEmpty?: boolean;
+}> = [
+  { status: "backlog", label: "Backlog", statuses: ["backlog"] },
+  { status: "planning", label: "Planning", statuses: ["planning", "improve"] },
+  { status: "plan_ready", label: "Plan Ready", statuses: ["plan_ready"] },
+  { status: "implementing", label: "In Progress", statuses: ["implementing", "review", "verify"] },
+  {
+    status: "blocked_external",
+    label: "Needs Attention",
+    statuses: ["blocked_external"],
+    hideWhenEmpty: true,
+  },
+  { status: "done", label: "Done", statuses: ["done", "verified"] },
+];
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const RECENT_CUTOFF_REFERENCE_TS = Date.now();
@@ -60,6 +80,9 @@ function compareTerminalTasks(a: TaskListItem, b: TaskListItem): number {
 
 export function Board({ projectId, onTaskClick, density, viewMode = "kanban" }: BoardProps) {
   const { data: tasks, isLoading } = useTasks(projectId);
+  const { data: projects } = useProjects();
+  const compactBoard =
+    projects?.find((project) => project.id === projectId)?.boardLayout === "compact";
   const { session } = useAuth();
   const currentParticipantId = session?.participant?.id ?? null;
   const isCompact = density === "compact";
@@ -217,6 +240,21 @@ export function Board({ projectId, onTaskClick, density, viewMode = "kanban" }: 
     return grouped;
   }, [filteredTasks]);
 
+  const boardColumns = useMemo(() => {
+    if (!compactBoard)
+      return ORDERED_STATUSES.map((status) => ({
+        status,
+        label: STATUS_CONFIG[status].label,
+        tasks: tasksByStatus[status],
+      }));
+    return COMPACT_COLUMNS.map((column) => ({
+      ...column,
+      tasks: column.statuses
+        .flatMap((status) => tasksByStatus[status])
+        .sort(column.status === "done" ? compareTerminalTasks : compareByPositionThenId),
+    })).filter((column) => !column.hideWhenEmpty || column.tasks.length > 0);
+  }, [compactBoard, tasksByStatus]);
+
   const listTasks = useMemo(() => {
     const query = listQuery.trim().toLowerCase();
     const searched = query
@@ -255,8 +293,11 @@ export function Board({ projectId, onTaskClick, density, viewMode = "kanban" }: 
   if (isLoading && viewMode === "kanban") {
     return (
       <div className="flex gap-4 overflow-x-auto pb-6">
-        {ORDERED_STATUSES.map((status) => (
-          <div key={status} className="w-80 flex-shrink-0 border border-border bg-card/65 p-3">
+        {boardColumns.map((column) => (
+          <div
+            key={column.status}
+            className="w-80 flex-shrink-0 border border-border bg-card/65 p-3"
+          >
             <div className="mb-3 h-10 border border-border bg-secondary/40" />
             <div className="space-y-2">
               <div className="h-20 border border-border bg-secondary/25" />
@@ -328,11 +369,13 @@ export function Board({ projectId, onTaskClick, density, viewMode = "kanban" }: 
 
       {viewMode === "kanban" ? (
         <div data-testid="kanban-board" className="flex gap-4 overflow-x-auto pb-6">
-          {ORDERED_STATUSES.map((status) => (
+          {boardColumns.map((column) => (
             <Column
-              key={status}
-              status={status}
-              tasks={tasksByStatus[status]}
+              key={column.status}
+              status={column.status}
+              label={column.label}
+              showTaskStatus={compactBoard}
+              tasks={column.tasks}
               projectId={projectId}
               totalVisibleTasks={filteredTasks.length}
               density={density}

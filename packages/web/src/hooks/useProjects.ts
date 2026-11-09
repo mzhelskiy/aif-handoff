@@ -65,6 +65,8 @@ export function useUpdateProject() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       invalidateProjectTaskOverviews(queryClient);
+      queryClient.invalidateQueries({ queryKey: ["projectBranches"] });
+      queryClient.invalidateQueries({ queryKey: ["projectDefaults", id] });
       queryClient.invalidateQueries({ queryKey: ["effectiveChatRuntime"] });
       queryClient.invalidateQueries({ queryKey: ["effectiveTaskRuntime"] });
       invalidateProjectWarmupQueries(queryClient, id);

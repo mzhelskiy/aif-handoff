@@ -12,6 +12,7 @@ import {
   buildTaskWorktreePath,
   describeDirtyWorkingTree,
   ensureFeatureBranch,
+  ensureProjectWorkingBranch,
   ensureTaskWorktree,
   countCommitsBetween,
   getCurrentBranch,
@@ -71,6 +72,60 @@ describe("gitIsolation", () => {
     }
     rmSync(projectRoot, { recursive: true, force: true });
   });
+
+  it(
+    "restores the configured project branch without requiring branch-scoped YAML",
+    () => {
+      initRepo(projectRoot);
+      git(projectRoot, ["branch", "develop"]);
+      expect(
+        ensureProjectWorkingBranch({
+          projectRoot,
+          taskId: "fixed",
+          persistedBranchName: "",
+          workingBranch: "develop",
+        }),
+      ).toBe("develop");
+      expect(getCurrentBranch(projectRoot)).toBe("develop");
+      writeFileSync(join(projectRoot, "README.md"), "user changes\n");
+      expect(
+        ensureProjectWorkingBranch({
+          projectRoot,
+          taskId: "fixed",
+          persistedBranchName: "develop",
+          workingBranch: "develop",
+        }),
+      ).toBe("develop");
+      expect(workingTreeClean(projectRoot)).toBe(false);
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "blocks dirty switches, missing branches and incompatible task bindings",
+    () => {
+      initRepo(projectRoot);
+      git(projectRoot, ["branch", "develop"]);
+      writeFileSync(join(projectRoot, "README.md"), "user changes\n");
+      const enforce = (workingBranch: string, persistedBranchName = "") =>
+        ensureProjectWorkingBranch({
+          projectRoot,
+          taskId: "fixed",
+          persistedBranchName,
+          workingBranch,
+        });
+      expect(() => enforce("develop")).toThrow(expect.objectContaining({ kind: "dirty_worktree" }));
+      expect(() => enforce("missing")).toThrow(expect.objectContaining({ kind: "branch_missing" }));
+      expect(() => enforce("develop", "feature/old")).toThrow(
+        expect.objectContaining({ kind: "branch_drift" }),
+      );
+      expect(getCurrentBranch(projectRoot)).toBe("main");
+      expect(
+        ensureProjectWorkingBranch({ projectRoot, taskId: "legacy", persistedBranchName: "" }),
+      ).toBeNull();
+    },
+    GIT_TEST_TIMEOUT_MS,
+  );
 
   it("normalizes task titles into deterministic branch names", () => {
     expect(slugifyTitle(" Fix: Café checkout! ")).toBe("fix-cafe-checkout");

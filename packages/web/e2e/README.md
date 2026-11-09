@@ -21,6 +21,8 @@ dev shell). Set `AIF_SKIP_DEV_SERVER=1` to bypass the auto-launch entirely and
 
 ## What each spec measures
 
+- `project-board.spec.ts` — grouped stage visibility, saving project board/stage settings, and layout persistence after reload.
+
 - `kanban-horizontal-scroll.spec.ts` — verifies horizontal wheel gestures over
   a vertically scrollable card list still scroll the Kanban board.
 - `perf/dashboard-load.spec.ts` — cold kanban render. Asserts DOM-ready and

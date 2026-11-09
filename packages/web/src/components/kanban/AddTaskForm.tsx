@@ -92,6 +92,11 @@ export function AddTaskForm({ projectId }: Props) {
   // settings, mirroring how createTask resolves them, so the form shows the
   // values the project will actually apply.
   const taskDefaults = defaults?.taskDefaults;
+  const skipReviewDefault = currentProject?.defaultSkipReview ?? taskDefaults?.skipReview;
+  const runPlanImproveDefault =
+    currentProject?.defaultRunPlanImprove ?? taskDefaults?.runPlanImprove ?? false;
+  const runPostVerifyDefault =
+    currentProject?.defaultRunPostVerify ?? taskDefaults?.runPostVerify ?? false;
   const autoModeDefault = taskDefaults?.autoMode ?? true;
   const plannerModeDefault = taskDefaults?.plannerMode ?? "fast";
   const useSubagentsDefault = taskDefaults?.useSubagents ?? settings?.useSubagents ?? false;
@@ -104,8 +109,8 @@ export function AddTaskForm({ projectId }: Props) {
     setAutoMode(autoModeDefault);
     setPlannerMode(plannerModeDefault);
     setUseSubagents(useSubagentsDefault);
-    setRunPlanImprove(false);
-    setRunPostVerify(false);
+    setRunPlanImprove(runPlanImproveDefault);
+    setRunPostVerify(runPostVerifyDefault);
     setAutoQa(false);
     setAutoQaCheck(false);
     setMaxReviewIterations(maxReviewIterationsDefault);
@@ -117,7 +122,7 @@ export function AddTaskForm({ projectId }: Props) {
     // and the project's task_defaults outrank the mode-driven ones.
     const seededMode = isParallel ? "full" : plannerModeDefault;
     const flags = defaultsForMode(seededMode);
-    setSkipReview(taskDefaults?.skipReview ?? flags.skipReview);
+    setSkipReview(skipReviewDefault ?? flags.skipReview);
     setPlanDocs(flags.planDocs);
     setPlanTests(taskDefaults?.planTests ?? flags.planTests);
   }, [
@@ -127,6 +132,9 @@ export function AddTaskForm({ projectId }: Props) {
     maxReviewIterationsDefault,
     plannerModeDefault,
     taskDefaults,
+    skipReviewDefault,
+    runPlanImproveDefault,
+    runPostVerifyDefault,
     useSubagentsDefault,
   ]);
 
@@ -144,10 +152,10 @@ export function AddTaskForm({ projectId }: Props) {
     const resetFlags = defaultsForMode(plannerModeDefault);
     setPlanDocs(resetFlags.planDocs);
     setPlanTests(taskDefaults?.planTests ?? resetFlags.planTests);
-    setSkipReview(taskDefaults?.skipReview ?? resetFlags.skipReview);
+    setSkipReview(skipReviewDefault ?? resetFlags.skipReview);
     setUseSubagents(useSubagentsDefault);
-    setRunPlanImprove(false);
-    setRunPostVerify(false);
+    setRunPlanImprove(runPlanImproveDefault);
+    setRunPostVerify(runPostVerifyDefault);
     setAutoQa(false);
     setAutoQaCheck(false);
     setMaxReviewIterations(maxReviewIterationsDefault);
@@ -161,6 +169,9 @@ export function AddTaskForm({ projectId }: Props) {
     maxReviewIterationsDefault,
     plannerModeDefault,
     taskDefaults,
+    skipReviewDefault,
+    runPlanImproveDefault,
+    runPostVerifyDefault,
     useSubagentsDefault,
   ]);
 
@@ -202,7 +213,7 @@ export function AddTaskForm({ projectId }: Props) {
     setPlannerMode(mode);
     syncPlanPath(title, mode);
     const flags = defaultsForMode(mode);
-    setSkipReview(flags.skipReview);
+    setSkipReview(skipReviewDefault ?? flags.skipReview);
     setPlanDocs(flags.planDocs);
     setPlanTests(flags.planTests);
   };

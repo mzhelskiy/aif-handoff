@@ -102,6 +102,100 @@ describe("ProjectSelector", () => {
     ];
   });
 
+  it("saves the selected working branch when creating a project", async () => {
+    const options = {
+      isRepository: true,
+      currentBranch: "main",
+      branches: ["develop", "main"],
+      workingBranch: null,
+    };
+    mockUseQuery.mockImplementation(({ queryKey }: { queryKey: string[] }) => ({
+      data: queryKey[0] === "projectBranches" ? options : undefined,
+      isLoading: false,
+      isFetching: false,
+    }));
+    render(<ProjectSelector selectedId="p-1" onSelect={() => {}} onDeselect={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /alpha/i }));
+    fireEvent.click(screen.getByText("New project"));
+    fireEvent.change(screen.getByPlaceholderText("My Project"), {
+      target: { value: "Branch project" },
+    });
+    fireEvent.change(screen.getByLabelText("Root Path"), {
+      target: { value: "/tmp/branch-project" },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Working branch" })).not.toBeDisabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Working branch" }));
+    fireEvent.click(screen.getByRole("option", { name: "develop" }));
+    fireEvent.click(screen.getByText("Create"));
+    expect(mutateCreateProject).toHaveBeenCalledWith(
+      expect.objectContaining({ workingBranch: "develop", rootPath: "/tmp/branch-project" }),
+      expect.any(Object),
+    );
+  });
+
+  it("shows the persisted working branch and explicitly clears it in project settings", async () => {
+    const options = {
+      isRepository: true,
+      currentBranch: "main",
+      branches: ["develop", "main"],
+      workingBranch: "develop",
+    };
+    mockUseQuery.mockImplementation(({ queryKey }: { queryKey: string[] }) => ({
+      data: queryKey[0] === "projectBranches" ? options : undefined,
+      isLoading: false,
+      isFetching: false,
+    }));
+    render(<ProjectSelector selectedId="p-1" onSelect={() => {}} onDeselect={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /alpha/i }));
+    fireEvent.click(screen.getByTitle("Edit"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Working branch" })).not.toBeDisabled(),
+    );
+    expect(screen.getByRole("button", { name: "Working branch" })).toHaveTextContent("develop");
+    fireEvent.click(screen.getByRole("button", { name: "Working branch" }));
+    fireEvent.click(screen.getByRole("option", { name: "Keep existing Git settings" }));
+    fireEvent.click(screen.getByText("Save"));
+    expect(mutateUpdateProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "p-1",
+        input: expect.objectContaining({ workingBranch: null }),
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("saves project board layout and optional stage defaults", () => {
+    mockUseQuery.mockReturnValue({ data: undefined, isLoading: false });
+    Object.assign(mockProjects[0], {
+      boardLayout: "detailed",
+      defaultSkipReview: false,
+      defaultRunPlanImprove: true,
+      defaultRunPostVerify: null,
+    });
+    render(<ProjectSelector selectedId="p-1" onSelect={() => {}} onDeselect={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: /alpha/i }));
+    fireEvent.click(screen.getByTitle("Edit"));
+    expect(screen.getByRole("button", { name: "Board layout" })).toHaveTextContent("Detailed");
+    fireEvent.click(screen.getByRole("button", { name: "Board layout" }));
+    fireEvent.click(screen.getByRole("option", { name: "Compact — 5 columns" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review new tasks" }));
+    fireEvent.click(screen.getByRole("option", { name: "Disabled" }));
+    fireEvent.click(screen.getByText("Save"));
+    expect(mutateUpdateProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({
+          boardLayout: "compact",
+          defaultSkipReview: true,
+          defaultRunPlanImprove: true,
+          defaultRunPostVerify: null,
+        }),
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("searches projects by name and root path in a bounded dropdown", async () => {
     mockUseQuery.mockReturnValue({ data: undefined, isLoading: false });
     mockProjects = [

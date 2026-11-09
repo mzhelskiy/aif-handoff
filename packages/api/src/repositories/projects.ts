@@ -1,7 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { isAbsolute, posix, relative, resolve, sep, win32 } from "node:path";
 import { initProject } from "@aif/runtime";
-import { findMonorepoRoot, validateProjectRootPath, logger } from "@aif/shared";
+import {
+  findMonorepoRoot,
+  validateProjectRootPath,
+  validateBranchName,
+  isBranchIsolationError,
+  logger,
+} from "@aif/shared";
 import type { CreateProjectInput, UpdateProjectOrganizationInput } from "@aif/shared";
 import { getApiRuntimeRegistry } from "../services/runtime.js";
 import {
@@ -23,6 +29,7 @@ import {
   resolveGitHubToken,
   toGitHubErrorResponse,
 } from "../services/github.js";
+import { validateProjectWorkingBranch } from "../services/projectGit.js";
 
 const log = logger("projects-repo");
 const MONOREPO_ROOT = findMonorepoRoot(import.meta.dirname);
@@ -55,7 +62,7 @@ function resolveHostProjectsDir(hostProjectsDir: string): string {
     : resolve(MONOREPO_ROOT, hostProjectsDir);
 }
 
-function mapProjectPathToContainer(rootPath: string): string {
+export function mapProjectPathToContainer(rootPath: string): string {
   const hostProjectsDir = process.env.PROJECTS_DIR?.trim();
   const containerProjectsMount = readContainerProjectsMount();
 
@@ -115,6 +122,11 @@ function projectRecordInput(input: CreateProjectInput, rootPath: string) {
   return {
     name: input.name,
     rootPath,
+    workingBranch: input.workingBranch,
+    boardLayout: input.boardLayout,
+    defaultSkipReview: input.defaultSkipReview,
+    defaultRunPlanImprove: input.defaultRunPlanImprove,
+    defaultRunPostVerify: input.defaultRunPostVerify,
     plannerMaxBudgetUsd: input.plannerMaxBudgetUsd,
     planCheckerMaxBudgetUsd: input.planCheckerMaxBudgetUsd,
     implementerMaxBudgetUsd: input.implementerMaxBudgetUsd,
@@ -187,6 +199,16 @@ async function createPathProject(input: CreateProjectInput & { rootPath: string 
   const pathError = validateProjectRootPath(rootPath);
   if (pathError) return { ok: false, status: 400, error: pathError } as const;
 
+  if (input.workingBranch) {
+    const error = validateProjectWorkingBranch(rootPath, input.workingBranch);
+    if (error) return { ok: false, status: 400, error } as const;
+    if (input.parallelEnabled)
+      return {
+        ok: false,
+        status: 400,
+        error: "A fixed working branch requires parallel execution to be disabled.",
+      } as const;
+  }
   const project = createProjectRecord(projectRecordInput(input, rootPath));
   if (!project) return { ok: false, status: 500, error: "Failed to create project" } as const;
   const result = await initializeProject(project);
@@ -276,7 +298,24 @@ async function createGitHubProject(
 
   let project: ProjectRow | undefined;
   try {
-    await cloneGitHubRepository({ owner, repository, destination, token });
+    await cloneGitHubRepository({
+      owner,
+      repository,
+      destination,
+      token,
+      branch: input.workingBranch ?? undefined,
+    });
+    if (input.workingBranch) {
+      const error = validateProjectWorkingBranch(destination, input.workingBranch);
+      if (error || input.parallelEnabled) {
+        cleanupManagedClone(destination);
+        return {
+          ok: false,
+          status: 400,
+          error: error ?? "A fixed working branch requires parallel execution to be disabled.",
+        };
+      }
+    }
     project = createProjectRecord(projectRecordInput(input, destination));
     if (!project) throw new Error("Project record was not created");
     upsertGitHubRepository({
@@ -324,6 +363,14 @@ export async function createProject(input: CreateProjectInput): Promise<ProjectC
     { sourceKind: input.rootPath === undefined ? "github" : "path", name: input.name },
     "Project creation started",
   );
+  if (input.workingBranch) {
+    try {
+      validateBranchName(MONOREPO_ROOT, input.workingBranch);
+    } catch (error) {
+      if (isBranchIsolationError(error)) return { ok: false, status: 400, error: error.message };
+      throw error;
+    }
+  }
   return input.rootPath === undefined
     ? createGitHubProject(input as CreateProjectInput & { githubRepository: string })
     : createPathProject(input as CreateProjectInput & { rootPath: string });
@@ -334,6 +381,12 @@ export function updateProject(
   input: {
     name: string;
     rootPath: string;
+    workingBranch?: string | null;
+    boardLayout?: "compact" | "detailed";
+    defaultSkipReview?: boolean | null;
+    defaultRunPlanImprove?: boolean | null;
+    defaultRunPostVerify?: boolean | null;
+
     plannerMaxBudgetUsd?: number | null;
     planCheckerMaxBudgetUsd?: number | null;
     implementerMaxBudgetUsd?: number | null;
@@ -349,6 +402,19 @@ export function updateProject(
   const pathError = validateProjectRootPath(normalizedInput.rootPath);
   if (pathError) return { project: undefined, pathError };
 
+  const selectedBranch =
+    input.workingBranch === undefined ? findProjectById(id)?.workingBranch : input.workingBranch;
+  if (selectedBranch) {
+    const branchError = validateProjectWorkingBranch(normalizedInput.rootPath, selectedBranch);
+    if (branchError) return { project: undefined, pathError: branchError };
+    const existing = findProjectById(id);
+    if (input.parallelEnabled ?? existing?.parallelEnabled) {
+      return {
+        project: undefined,
+        pathError: "A fixed working branch requires parallel execution to be disabled.",
+      };
+    }
+  }
   return { project: updateProjectRecord(id, normalizedInput) };
 }
 

@@ -58,6 +58,11 @@ export interface AutoReviewState {
 }
 
 export interface Project {
+  boardLayout?: "compact" | "detailed";
+  defaultSkipReview?: boolean | null;
+  defaultRunPlanImprove?: boolean | null;
+  defaultRunPostVerify?: boolean | null;
+  workingBranch?: string | null;
   id: string;
   name: string;
   rootPath: string;
@@ -144,8 +149,21 @@ export interface GitHubIssueLink {
   updatedAt: string;
 }
 
+export interface ProjectBranchOptions {
+  isRepository: boolean;
+  currentBranch: string | null;
+  branches: string[];
+  workingBranch: string | null;
+}
+
 interface ProjectInputSettings {
+  boardLayout?: "compact" | "detailed";
+  defaultSkipReview?: boolean | null;
+  defaultRunPlanImprove?: boolean | null;
+  defaultRunPostVerify?: boolean | null;
   name: string;
+  /** Existing branch used by all project tasks; null removes the pin. */
+  workingBranch?: string | null;
   plannerMaxBudgetUsd?: number;
   planCheckerMaxBudgetUsd?: number;
   implementerMaxBudgetUsd?: number;
@@ -606,6 +624,7 @@ export interface ReorderTaskInput {
 /** WebSocket event types */
 export type WsEventType =
   | "project:created"
+  | "project:updated"
   | "project:organization_updated"
   | "participant:created"
   | "participant:updated"

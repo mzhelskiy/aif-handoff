@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { chatSessions } from "../schema.js";
 import { closeDb, createTestDb, getDb } from "../db.js";
 
-const CURRENT_SCHEMA_VERSION = 31;
+const CURRENT_SCHEMA_VERSION = 33;
 
 function removeSqliteArtifacts(dbPath: string): void {
   for (const path of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
@@ -23,6 +23,97 @@ describe("db", () => {
   it("createTestDb returns a working database with indexes", () => {
     const db = createTestDb();
     expect(db).toBeDefined();
+  });
+
+  it("upgrades v32 project settings with compact layout without changing task flags", () => {
+    closeDb();
+    const dbPath = join(tmpdir(), `aif-board-upgrade-${Date.now()}-${Math.random()}.sqlite`);
+    try {
+      getDb(dbPath);
+      closeDb();
+      const legacy = new Database(dbPath);
+      for (const column of [
+        "board_layout",
+        "default_skip_review",
+        "default_run_plan_improve",
+        "default_run_post_verify",
+      ])
+        legacy.exec(`ALTER TABLE projects DROP COLUMN ${column}`);
+      legacy.pragma("user_version = 32");
+      legacy
+        .prepare("INSERT INTO projects (id, name, root_path, working_branch) VALUES (?, ?, ?, ?)")
+        .run("project", "Existing", "/tmp/board", "develop");
+      legacy
+        .prepare("INSERT INTO tasks (id, project_id, title, skip_review) VALUES (?, ?, ?, ?)")
+        .run("task", "project", "Existing task", 0);
+      legacy.close();
+      getDb(dbPath);
+      closeDb();
+      const upgraded = new Database(dbPath);
+      expect(
+        upgraded
+          .prepare(
+            "SELECT board_layout, working_branch, default_skip_review, default_run_plan_improve, default_run_post_verify FROM projects",
+          )
+          .get(),
+      ).toEqual({
+        board_layout: "compact",
+        working_branch: "develop",
+        default_skip_review: null,
+        default_run_plan_improve: null,
+        default_run_post_verify: null,
+      });
+      expect(upgraded.prepare("SELECT skip_review FROM tasks").get()).toEqual({ skip_review: 0 });
+      upgraded.exec("UPDATE projects SET board_layout = 'detailed', default_skip_review = 1");
+      upgraded.close();
+      getDb(dbPath);
+      closeDb();
+      const restarted = new Database(dbPath, { readonly: true });
+      expect(
+        restarted.prepare("SELECT board_layout, default_skip_review FROM projects").get(),
+      ).toEqual({ board_layout: "detailed", default_skip_review: 1 });
+      restarted.close();
+    } finally {
+      closeDb();
+      removeSqliteArtifacts(dbPath);
+    }
+  });
+
+  it("upgrades v31 project branches and preserves the choice after restart", () => {
+    closeDb();
+    const dbPath = join(tmpdir(), `aif-working-branch-${Date.now()}-${Math.random()}.sqlite`);
+    try {
+      getDb(dbPath);
+      closeDb();
+      const legacy = new Database(dbPath);
+      legacy.exec("ALTER TABLE projects DROP COLUMN working_branch");
+      legacy.pragma("user_version = 31");
+      legacy
+        .prepare("INSERT INTO projects (id, name, root_path) VALUES (?, ?, ?)")
+        .run("project", "Existing", "/tmp/existing");
+      legacy.close();
+      getDb(dbPath);
+      closeDb();
+      const upgraded = new Database(dbPath);
+      expect(
+        upgraded.prepare("SELECT name, working_branch FROM projects WHERE id = 'project'").get(),
+      ).toEqual({ name: "Existing", working_branch: null });
+      upgraded
+        .prepare("UPDATE projects SET working_branch = ? WHERE id = 'project'")
+        .run("develop");
+      upgraded.close();
+      getDb(dbPath);
+      closeDb();
+      const restarted = new Database(dbPath, { readonly: true });
+      expect(
+        restarted.prepare("SELECT working_branch FROM projects WHERE id = 'project'").get(),
+      ).toEqual({ working_branch: "develop" });
+      expect(restarted.pragma("user_version", { simple: true })).toBe(CURRENT_SCHEMA_VERSION);
+      restarted.close();
+    } finally {
+      closeDb();
+      removeSqliteArtifacts(dbPath);
+    }
   });
 
   it("appends attempt tracking to a v29 database without treating old queued rows as started", () => {

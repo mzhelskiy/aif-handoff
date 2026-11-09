@@ -210,6 +210,128 @@ describe("coordinator", () => {
       .run();
   }
 
+  it("binds every stage to the project working branch without creating task branches", async () => {
+    const rootPath = createGitRoot("aif-fixed-project-");
+    try {
+      execFileSync("git", ["branch", "develop"], { cwd: rootPath });
+      testDb.current
+        .update(projects)
+        .set({ rootPath, workingBranch: "develop" })
+        .where(eq(projects.id, "test-project"))
+        .run();
+      testDb.current
+        .insert(tasks)
+        .values({ id: "fixed-task", projectId: "test-project", title: "Fixed", status: "planning" })
+        .run();
+      vi.mocked(runPlanner).mockImplementationOnce(async () => {
+        expect(
+          testDb.current.select().from(tasks).where(eq(tasks.id, "fixed-task")).get()?.branchName,
+        ).toBe("develop");
+        expect(
+          execFileSync("git", ["branch", "--show-current"], {
+            cwd: rootPath,
+            encoding: "utf8",
+          }).trim(),
+        ).toBe("develop");
+        writeFileSync(join(rootPath, "README.md"), "implementation remains uncommitted\n");
+      });
+      await pollAndProcess();
+      const task = testDb.current.select().from(tasks).where(eq(tasks.id, "fixed-task")).get();
+      expect(task?.branchName).toBe("develop");
+      expect(task?.status).toBe("done");
+      expect(runImplementer).toHaveBeenCalledWith("fixed-task", rootPath);
+      expect(
+        execFileSync("git", ["branch", "--format=%(refname:short)"], {
+          cwd: rootPath,
+          encoding: "utf8",
+        })
+          .trim()
+          .split("\n"),
+      ).toEqual(["develop", "main"]);
+    } finally {
+      rmSync(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("captures an auto-queue baseline on the selected branch before planning", async () => {
+    const rootPath = createGitRoot("aif-fixed-baseline-");
+    try {
+      const originalSha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: rootPath,
+        encoding: "utf8",
+      }).trim();
+      execFileSync("git", ["checkout", "-b", "develop"], { cwd: rootPath, stdio: "ignore" });
+      execFileSync("git", ["commit", "--allow-empty", "-m", "selected branch baseline"], {
+        cwd: rootPath,
+        stdio: "ignore",
+      });
+      const selectedSha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: rootPath,
+        encoding: "utf8",
+      }).trim();
+      execFileSync("git", ["checkout", "main"], { cwd: rootPath, stdio: "ignore" });
+      testDb.current
+        .update(projects)
+        .set({ rootPath, workingBranch: "develop" })
+        .where(eq(projects.id, "test-project"))
+        .run();
+      testDb.current
+        .insert(tasks)
+        .values({
+          id: "fixed-baseline",
+          projectId: "test-project",
+          title: "Plan",
+          status: "planning",
+          autoMode: false,
+          autoQueueCommitStatus: "pending",
+          autoQueueCommitBaseSha: originalSha,
+        })
+        .run();
+      await pollAndProcess();
+      const task = testDb.current.select().from(tasks).where(eq(tasks.id, "fixed-baseline")).get();
+      expect(task?.autoQueueCommitBaseSha).toBe(selectedSha);
+      expect(task?.branchName).toBe("develop");
+      expect(task?.status).toBe("plan_ready");
+    } finally {
+      rmSync(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks a project branch switch with user changes before running an agent", async () => {
+    const rootPath = createGitRoot("aif-fixed-dirty-");
+    try {
+      execFileSync("git", ["branch", "develop"], { cwd: rootPath });
+      writeFileSync(join(rootPath, "README.md"), "user changes\n");
+      testDb.current
+        .update(projects)
+        .set({ rootPath, workingBranch: "develop" })
+        .where(eq(projects.id, "test-project"))
+        .run();
+      testDb.current
+        .insert(tasks)
+        .values({
+          id: "blocked-fixed",
+          projectId: "test-project",
+          title: "Fixed",
+          status: "planning",
+        })
+        .run();
+      await pollAndProcess();
+      expect(runPlanner).not.toHaveBeenCalled();
+      const task = testDb.current.select().from(tasks).where(eq(tasks.id, "blocked-fixed")).get();
+      expect(task?.status).toBe("blocked_external");
+      expect(task?.retryAfter).toBeNull();
+      expect(
+        execFileSync("git", ["branch", "--show-current"], {
+          cwd: rootPath,
+          encoding: "utf8",
+        }).trim(),
+      ).toBe("main");
+    } finally {
+      rmSync(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("should pick up planning tasks and process through full pipeline", async () => {
     const db = testDb.current;
     db.insert(tasks)

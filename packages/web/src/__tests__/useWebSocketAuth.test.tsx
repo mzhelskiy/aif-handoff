@@ -93,6 +93,22 @@ describe("useWebSocket authentication lifecycle", () => {
     vi.unstubAllGlobals();
   });
 
+  it("refreshes project layout and creation defaults after settings change elsewhere", () => {
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    renderHook(() => useWebSocket(), { wrapper: createWrapper(queryClient) });
+    act(() =>
+      FakeWebSocket.instances[0]?.onmessage?.({
+        data: JSON.stringify({
+          type: "project:updated",
+          payload: { id: "project", boardLayout: "compact" },
+        }),
+      } as MessageEvent),
+    );
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["projects"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["projectDefaults"] });
+  });
+
   it("stops reconnecting when the session check reports an authentication failure", async () => {
     authMocks.getAuthSession.mockResolvedValue({
       participantsModeEnabled: true,

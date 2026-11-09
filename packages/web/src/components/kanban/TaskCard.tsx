@@ -21,6 +21,7 @@ interface TaskCardProps {
   task: TaskListItem;
   onClick: () => void;
   overlay?: boolean;
+  showStatus?: boolean;
   density?: "comfortable" | "compact";
   canMoveUp?: boolean;
   canMoveDown?: boolean;
@@ -37,6 +38,7 @@ export function TaskCard({
   task,
   onClick,
   overlay,
+  showStatus = false,
   density = "comfortable",
   canMoveUp,
   canMoveDown,
@@ -96,6 +98,15 @@ export function TaskCard({
           {task.title}
         </div>
         <div className="flex shrink-0 flex-wrap items-start justify-end gap-1">
+          {showStatus && (
+            <Badge
+              size={isCompact ? "xs" : "sm"}
+              variant="secondary"
+              aria-label={`Task stage: ${STATUS_CONFIG[task.status].label}`}
+            >
+              {STATUS_CONFIG[task.status].label}
+            </Badge>
+          )}
           {task.manualReviewRequired && (
             <Badge
               size={isCompact ? "xs" : "sm"}

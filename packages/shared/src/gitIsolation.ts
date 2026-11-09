@@ -629,6 +629,24 @@ export function ensureTaskWorktree(input: EnsureTaskWorktreeInput): EnsureTaskWo
   return { action: "created", branchName, worktreePath };
 }
 
+/** Enforce the project's fixed branch before any task stage, preserving dirty checkouts. */
+export function ensureProjectWorkingBranch(
+  input: RestorePersistedBranchInput & { workingBranch?: string | null },
+): string | null {
+  const branch = input.workingBranch;
+  if (!branch) return null;
+  if (input.persistedBranchName && input.persistedBranchName !== branch) {
+    throw new BranchIsolationError(
+      "branch_drift",
+      `Task is bound to ${input.persistedBranchName}, but the project working branch is ${branch}. Restore the project setting before resuming this task.`,
+      input.projectRoot,
+      branch,
+    );
+  }
+  restorePersistedBranch({ ...input, persistedBranchName: branch });
+  return branch;
+}
+
 export function ensureFeatureBranch(input: EnsureFeatureBranchInput): EnsureFeatureBranchResult {
   const { projectRoot, title, explicitBranchName, taskId, switchOnly } = input;
   const config = resolveGitConfig(projectRoot);

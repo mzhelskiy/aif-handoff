@@ -83,6 +83,11 @@ const maxReviewIterationsSchema = z
 
 const projectSettingsSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
+  workingBranch: z.string().trim().min(1).max(250).nullable().optional(),
+  boardLayout: z.enum(["compact", "detailed"]).optional(),
+  defaultSkipReview: z.boolean().nullable().optional(),
+  defaultRunPlanImprove: z.boolean().nullable().optional(),
+  defaultRunPostVerify: z.boolean().nullable().optional(),
   plannerMaxBudgetUsd: z.number().positive().optional(),
   planCheckerMaxBudgetUsd: z.number().positive().optional(),
   implementerMaxBudgetUsd: z.number().positive().optional(),
@@ -98,6 +103,11 @@ const githubRepositorySchema = z
   .string()
   .trim()
   .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, "Repository must use owner/name format");
+
+export const projectBranchesQuerySchema = z.object({
+  rootPath: z.string().min(1).max(4096),
+  projectId: z.string().uuid().optional(),
+});
 
 export const createProjectSchema = projectSettingsSchema.and(
   z.union([
@@ -170,8 +180,8 @@ export const createTaskSchema = z.object({
   planTests: z.boolean().optional(),
   skipReview: z.boolean().optional(),
   useSubagents: z.boolean().optional(),
-  runPlanImprove: z.boolean().default(false),
-  runPostVerify: z.boolean().default(false),
+  runPlanImprove: z.boolean().optional(),
+  runPostVerify: z.boolean().optional(),
   autoQa: z.boolean().optional(),
   autoQaCheck: z.boolean().optional(),
   maxReviewIterations: maxReviewIterationsSchema.optional(),

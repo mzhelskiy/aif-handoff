@@ -55,6 +55,7 @@ import {
   isGitRepo,
   projectSupportsTaskWorktrees,
   projectUsesSharedBranchIsolation,
+  ensureProjectWorkingBranch,
 } from "./gitBranch.js";
 import { flushActivityQueue } from "./hooks.js";
 import {
@@ -367,7 +368,13 @@ function projectRequiresSerialExecution(project: ProjectRow): boolean {
     isGitRepo(project.rootPath) &&
     taskWorktreesUnavailable;
 
-  return hasSharedBranchTask || usesSharedBranchIsolation || usesAutoQueueSharedGitWorktree;
+  const hasFixedWorkingBranch = Boolean(project.workingBranch);
+  return (
+    hasFixedWorkingBranch ||
+    hasSharedBranchTask ||
+    usesSharedBranchIsolation ||
+    usesAutoQueueSharedGitWorktree
+  );
 }
 
 function scheduledTaskHasDirtyAutoQueueWorktree(
@@ -586,20 +593,6 @@ async function processOneTask(task: TaskRow, stage: StatusTransition): Promise<b
     return false;
   }
 
-  if (_runtimeRegistry) {
-    const initResult = initProject({
-      projectRoot: task.worktreePath ?? project.rootPath,
-      registry: _runtimeRegistry,
-    });
-    if (!initResult.ok) {
-      log.error(
-        { taskId: task.id, projectId: task.projectId, error: initResult.error },
-        "Project .ai-factory/ scaffold missing and init failed, skipping task",
-      );
-      return false;
-    }
-  }
-
   log.info(
     {
       taskId: task.id,
@@ -641,6 +634,34 @@ async function processOneTask(task: TaskRow, stage: StatusTransition): Promise<b
         "Aborted runtime execution at ownership boundary",
       );
       return false;
+    }
+    const workingBranch = ensureProjectWorkingBranch({
+      projectRoot: executionRoot,
+      taskId: task.id,
+      persistedBranchName: task.branchName ?? "",
+      workingBranch: project.workingBranch,
+    });
+    if (workingBranch && !task.branchName) {
+      setTaskFields(task.id, {
+        branchName: workingBranch,
+        // Auto-queue may claim the task before this checkout is restored.
+        ...(AUTO_QUEUE_COMMIT_GATE_ENABLED && task.autoQueueCommitStatus === "pending"
+          ? { autoQueueCommitBaseSha: getHeadCommitSha(executionRoot) }
+          : {}),
+      });
+    }
+    if (_runtimeRegistry) {
+      const initResult = initProject({
+        projectRoot: task.worktreePath ?? project.rootPath,
+        registry: _runtimeRegistry,
+      });
+      if (!initResult.ok) {
+        log.error(
+          { taskId: task.id, projectId: task.projectId, error: initResult.error },
+          "Project .ai-factory/ scaffold missing and init failed, skipping task",
+        );
+        return false;
+      }
     }
     await runStageWithTimeout(stage.runner, task.id, executionRoot, stage.label);
     assertTaskAttemptCurrent(task.id);

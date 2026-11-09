@@ -2,6 +2,47 @@
 
 # Configuration
 
+## Project board and workflow settings
+
+Project creation and settings include **Board and workflow**. Settings are stored
+in the Handoff database and shared between clients.
+
+**Compact** is the default layout: Backlog, Planning, Plan Ready, In Progress, Done.
+Planning includes `planning` and `improve`; In Progress includes `implementing`,
+`review`, and `verify`; Done includes `done` and `verified`. Every card shows its
+exact internal stage, preserving the distinction between agent completion and human
+acceptance. A **Needs Attention** column appears whenever blocked tasks match the
+current filters. No status is discarded. **Detailed** shows all ten status columns.
+The list view, task actions, and execution state machine are unchanged by layout.
+
+Review, plan improvement, and implementation verification each support Enabled,
+Disabled, or Use existing defaults. These are defaults for **new tasks**, not switches
+that rewrite existing tasks. Explicit task flags override project choices; project
+choices override `.ai-factory/config.yaml` `task_defaults`; null restores the existing
+YAML/mode fallback. Improve and Verify apply in skills mode (`useSubagents=false`);
+subagent workflows manage their own passes and keep those flags false.
+
+REST and MCP creation use the same data-layer resolution. The new-task form reads
+the effective settings from `GET /projects/:id/defaults`. Updates broadcast
+`project:updated`, refreshing board settings and creation defaults in other clients.
+
+## Project working branch
+
+The project creation and settings dialogs provide a **Working branch** selector for
+existing local branches. New projects initially select the checkout's current branch.
+Clear the selection to retain the usual AI Factory Git policy. The choice is stored
+in Handoff's database, so switching branches cannot lose the setting.
+
+With a selected branch, all task stages use that branch and do not provision task
+branches or worktrees. These projects run serially; parallel execution must be off.
+Saving settings does not switch Git branches. Before an agent starts, Handoff safely
+restores the selected branch. A dirty checkout on a different branch, a missing branch,
+or an incompatible existing task branch blocks the task for operator action, without
+stashing, resetting, committing, or automatically retrying. Existing changes on the
+selected branch are preserved and may be continued by subsequent stages.
+
+The project selection does not change commit, push, approval, or runtime settings.
+
 All configuration is done via environment variables. Copy `.env.example` to `.env`:
 
 ```bash

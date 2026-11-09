@@ -279,6 +279,17 @@ include only task id/title pairs — never plan text, logs, or other detail-only
 fields. `lastActivityAt` is the latest task `updatedAt` timestamp for the
 project, or `null` when the project has no tasks.
 
+### List Local Project Branches
+
+```
+GET /projects/branches?rootPath=/absolute/project/path&projectId=<optional-project-uuid>
+```
+
+Returns `{ isRepository, currentBranch, branches, workingBranch }`. `branches` contains
+existing local branch names; `currentBranch` is null for a detached HEAD. Optional
+`projectId` includes the saved project selection. Invalid paths return `400`; an unknown
+project returns `404`. Discovery never fetches, creates branches, or changes the checkout.
+
 ### Create Project
 
 ```
@@ -291,6 +302,11 @@ POST /projects
 | `name` | string | yes | Project name (1-200 chars) |
 | `rootPath` | string | conditional | Existing absolute project path. Required when `githubRepository` is omitted; cannot be combined with it |
 | `githubRepository` | string | conditional | GitHub repository in `owner/name` form. Required when `rootPath` is omitted; cannot be combined with it |
+| `boardLayout` | string | no | `compact` (default: five grouped columns, plus nonempty Needs Attention) or `detailed` (all ten stages). Changes display only |
+| `defaultSkipReview` | boolean\|null | no | Review default for new tasks (`true` skips review). Null inherits YAML/mode defaults |
+| `defaultRunPlanImprove` | boolean\|null | no | Plan improvement default for new skills-mode tasks. Null inherits existing defaults |
+| `defaultRunPostVerify` | boolean\|null | no | Implementation verification default for new skills-mode tasks. Null inherits existing defaults |
+| `workingBranch` | string\|null | no | Existing working branch for all task stages. Null keeps existing Git policy; omitted on update preserves the saved choice. Requires parallel execution disabled. GitHub creation clones this branch |
 | `plannerMaxBudgetUsd` | number | no | Budget for planner agent. If omitted, unlimited |
 | `planCheckerMaxBudgetUsd` | number | no | Budget for plan-checker agent. If omitted, unlimited |
 | `implementerMaxBudgetUsd` | number | no | Budget for implementer agent. If omitted, unlimited |
@@ -323,9 +339,21 @@ PUT /projects/:id
 ```
 
 **Body:** Project settings plus required `rootPath`. Updating a project does not
-accept `githubRepository` and never clones a repository.
+accept `githubRepository` and never clones a repository. `workingBranch` is stored in
+the Handoff database and saving does not change the checkout. Changing the selection
+while a project task holds an active lock returns `409`. A missing local branch or
+parallel execution combined with a fixed branch returns `400`.
 
 **Response:** `200 OK` — the updated project object.
+
+Project board and stage fields are optional on update: omission preserves the saved
+value; null clears a stage override. Existing tasks retain their flags. The endpoint
+emits `project:updated` with the persisted project after a successful update.
+
+`GET /projects/:id/defaults` returns `paths`, `workflow`, and effective `taskDefaults`,
+including `skipReview`, `runPlanImprove`, and `runPostVerify` when configured.
+`POST /tasks` preserves omitted stage flags for inheritance; explicit booleans override
+project defaults. Subagent mode always disables the separate Improve/Verify flags.
 
 ### Update Project Organization
 
@@ -1714,6 +1742,7 @@ All events are JSON with this structure:
 
 | Event                             | Payload                                                                                            | Triggered By                                                                         |
 | --------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `project:updated`                 | Full saved project object; refresh project settings and task defaults                              | `PUT /projects/:id`                                                                  |
 | `project:created`                 | Full project object                                                                                | `POST /projects`                                                                     |
 | `project:organization_updated`    | Full project object                                                                                | `PATCH /projects/:id/organization`                                                   |
 | `task:created`                    | Full task object                                                                                   | `POST /tasks`, `POST /projects/:id/roadmap/import`                                   |

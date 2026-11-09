@@ -7,6 +7,7 @@ export {
   buildTaskWorktreePath,
   describeDirtyWorkingTree,
   ensureFeatureBranch,
+  ensureProjectWorkingBranch,
   ensureTaskWorktree,
   getCurrentBranch,
   isBranchIsolationError,

@@ -38,6 +38,7 @@ import {
   generatePlanPath,
   getEnv,
   getProjectConfig,
+  resolveProjectStageDefaults,
   isRuntimeTransport,
   logger as createLogger,
   normalizeRuntimeLimitSnapshot,
@@ -1242,7 +1243,7 @@ export function createTask(input: {
   const project = findProjectById(input.projectId);
   const projectRoot = project?.rootPath ?? process.cwd();
   const cfg = getProjectConfig(projectRoot);
-  const td = cfg.task_defaults;
+  const td = resolveProjectStageDefaults(cfg.task_defaults, project);
 
   // Resolve task flags: explicit input → project task_defaults → global default.
   // createTask is the single resolution point: REST, MCP and roadmap import pass
@@ -1267,8 +1268,12 @@ export function createTask(input: {
   const resolvedPlanDocs = input.planDocs ?? modeDefaults.planDocs;
 
   // Subagent workflows own their own improve/verify passes.
-  const resolvedRunPlanImprove = resolvedUseSubagents ? false : input.runPlanImprove;
-  const resolvedRunPostVerify = resolvedUseSubagents ? false : input.runPostVerify;
+  const resolvedRunPlanImprove = resolvedUseSubagents
+    ? false
+    : (input.runPlanImprove ?? td.runPlanImprove ?? false);
+  const resolvedRunPostVerify = resolvedUseSubagents
+    ? false
+    : (input.runPostVerify ?? td.runPostVerify ?? false);
 
   // Auto-compute planPath for full mode when no explicit path is provided
   let resolvedPlanPath = input.planPath;
@@ -2000,6 +2005,12 @@ export function findProjectById(id: string): ProjectRow | undefined {
 export function createProject(input: {
   name: string;
   rootPath: string;
+  workingBranch?: string | null;
+  boardLayout?: "compact" | "detailed";
+  defaultSkipReview?: boolean | null;
+  defaultRunPlanImprove?: boolean | null;
+  defaultRunPostVerify?: boolean | null;
+
   plannerMaxBudgetUsd?: number | null;
   planCheckerMaxBudgetUsd?: number | null;
   implementerMaxBudgetUsd?: number | null;
@@ -2028,6 +2039,11 @@ export function createProject(input: {
       id,
       name: input.name,
       rootPath: input.rootPath,
+      workingBranch: input.workingBranch ?? null,
+      boardLayout: input.boardLayout ?? "compact",
+      defaultSkipReview: input.defaultSkipReview ?? null,
+      defaultRunPlanImprove: input.defaultRunPlanImprove ?? null,
+      defaultRunPostVerify: input.defaultRunPostVerify ?? null,
       plannerMaxBudgetUsd: input.plannerMaxBudgetUsd ?? null,
       planCheckerMaxBudgetUsd: input.planCheckerMaxBudgetUsd ?? null,
       implementerMaxBudgetUsd: input.implementerMaxBudgetUsd ?? null,
@@ -2049,6 +2065,12 @@ export function updateProject(
   input: {
     name: string;
     rootPath: string;
+    workingBranch?: string | null;
+    boardLayout?: "compact" | "detailed";
+    defaultSkipReview?: boolean | null;
+    defaultRunPlanImprove?: boolean | null;
+    defaultRunPostVerify?: boolean | null;
+
     plannerMaxBudgetUsd?: number | null;
     planCheckerMaxBudgetUsd?: number | null;
     implementerMaxBudgetUsd?: number | null;
@@ -2070,6 +2092,11 @@ export function updateProject(
     parallelEnabled: input.parallelEnabled ?? false,
     updatedAt: new Date().toISOString(),
   };
+  if (input.workingBranch !== undefined) patch.workingBranch = input.workingBranch;
+  if (input.boardLayout !== undefined) patch.boardLayout = input.boardLayout;
+  if (input.defaultSkipReview !== undefined) patch.defaultSkipReview = input.defaultSkipReview;
+  if (input.defaultRunPlanImprove !== undefined) patch.defaultRunPlanImprove = input.defaultRunPlanImprove;
+  if (input.defaultRunPostVerify !== undefined) patch.defaultRunPostVerify = input.defaultRunPostVerify;
   if (input.defaultTaskRuntimeProfileId !== undefined) {
     patch.defaultTaskRuntimeProfileId = input.defaultTaskRuntimeProfileId;
   }

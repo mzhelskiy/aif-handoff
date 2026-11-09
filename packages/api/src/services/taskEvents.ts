@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import {
   assertCurrentBranch,
   ensureFeatureBranch,
+  ensureProjectWorkingBranch,
   isBranchIsolationError,
   looksLikeFullPlanUpdate,
   getProjectConfig,
@@ -41,8 +42,22 @@ function restoreTaskBranchForMutation(
   task: TaskRow,
   projectRoot: string,
 ): EventHandlerResult | null {
-  if (!task.branchName || task.isFix) return null;
+  const workingBranch = findProjectById(task.projectId)?.workingBranch;
+  if (!workingBranch && (!task.branchName || task.isFix)) return null;
   try {
+    if (workingBranch) {
+      const branch = ensureProjectWorkingBranch({
+        projectRoot,
+        taskId: task.id,
+        persistedBranchName: task.branchName ?? "",
+        workingBranch,
+      });
+      if (branch && !task.branchName) {
+        setTaskFields(task.id, { branchName: branch });
+        task.branchName = branch;
+      }
+      return null;
+    }
     // task.branchName is a source-of-truth contract: every mutation path
     // (fast-fix, regular transition, accept_existing_plan) must land on the
     // persisted branch or fail loud. Use `restorePersistedBranch` instead of
@@ -52,7 +67,7 @@ function restoreTaskBranchForMutation(
     restorePersistedBranch({
       projectRoot,
       taskId: task.id,
-      persistedBranchName: task.branchName,
+      persistedBranchName: task.branchName!,
     });
     return null;
   } catch (err) {
@@ -66,7 +81,8 @@ function restoreTaskBranchForMutation(
 }
 
 function assertTaskBranchPostRun(task: TaskRow, projectRoot: string): EventHandlerResult | null {
-  if (!task.branchName || task.isFix) return null;
+  if (!task.branchName || (task.isFix && !findProjectById(task.projectId)?.workingBranch))
+    return null;
   try {
     assertCurrentBranch(projectRoot, task.branchName);
     return null;
@@ -285,7 +301,11 @@ function handleAcceptExistingPlan(input: EventHandlerInput): EventHandlerResult 
   // Fix tasks keep the legacy no-branch behavior.
   let boundBranchName: string | null = task.branchName ?? null;
   let executionRoot = task.worktreePath ?? project.rootPath;
-  if (!task.isFix && boundBranchName) {
+  if (project.workingBranch) {
+    const branchError = restoreTaskBranchForMutation(task, executionRoot);
+    if (branchError) return branchError;
+    boundBranchName = task.branchName ?? null;
+  } else if (!task.isFix && boundBranchName) {
     const branchError = restoreTaskBranchForMutation(task, executionRoot);
     if (branchError) return branchError;
   } else if (!task.isFix && !boundBranchName) {

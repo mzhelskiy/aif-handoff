@@ -7,6 +7,8 @@ import { ScrollableContainer } from "@/components/ui/scrollable-container";
 
 interface ColumnProps {
   status: TaskStatus;
+  label?: string;
+  showTaskStatus?: boolean;
   tasks: TaskListItem[];
   projectId: string;
   onTaskClick: (taskId: string) => void;
@@ -43,6 +45,8 @@ function reorderBacklog(
 
 export function Column({
   status,
+  label,
+  showTaskStatus,
   tasks,
   projectId,
   onTaskClick,
@@ -71,7 +75,7 @@ export function Column({
             style={{ backgroundColor: config.color }}
           />
           <h3 className={`${isCompact ? "text-xs" : "text-xs"} font-semibold tracking-tight`}>
-            {config.label}
+            {label ?? config.label}
           </h3>
           <span
             className={`ml-auto border border-border bg-secondary text-muted-foreground ${
@@ -118,6 +122,7 @@ export function Column({
             <TaskCard
               key={task.id}
               task={task}
+              showStatus={showTaskStatus}
               density={density}
               onClick={() => onTaskClick(task.id)}
               {...reorderProps}

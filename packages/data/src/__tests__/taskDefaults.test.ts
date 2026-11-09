@@ -12,7 +12,7 @@ vi.mock("@aif/shared/server", async (importOriginal) => {
   return { ...actual, getDb: () => testDb.current };
 });
 
-const { createTask } = await import("../index.js");
+const { createTask, findTaskById } = await import("../index.js");
 
 const PROJECT_ID = "proj-task-defaults";
 let projectRoot: string;
@@ -38,6 +38,78 @@ function writeTaskDefaults(yaml: string): void {
 }
 
 describe("createTask task_defaults fallback", () => {
+  it("uses saved project stage choices above YAML and leaves existing tasks unchanged", () => {
+    writeTaskDefaults(
+      "task_defaults:\n  plannerMode: full\n  skipReview: false\n  runPlanImprove: false\n  runPostVerify: false\n",
+    );
+    const original = createTask({
+      projectId: PROJECT_ID,
+      title: "Original",
+      description: "",
+    });
+    testDb.current
+      .update(projects)
+      .set({
+        defaultSkipReview: true,
+        defaultRunPlanImprove: true,
+        defaultRunPostVerify: true,
+      })
+      .run();
+    const inherited = createTask({
+      projectId: PROJECT_ID,
+      title: "Inherited",
+      description: "",
+    });
+    expect(inherited).toMatchObject({
+      skipReview: true,
+      runPlanImprove: true,
+      runPostVerify: true,
+    });
+    expect(original && findTaskById(original.id)).toMatchObject({
+      skipReview: false,
+      runPlanImprove: false,
+      runPostVerify: false,
+    });
+    const explicit = createTask({
+      projectId: PROJECT_ID,
+      title: "Override",
+      description: "",
+      skipReview: false,
+      runPlanImprove: false,
+      runPostVerify: false,
+    });
+    expect(explicit).toMatchObject({
+      skipReview: false,
+      runPlanImprove: false,
+      runPostVerify: false,
+    });
+    const subagents = createTask({
+      projectId: PROJECT_ID,
+      title: "Subagents",
+      description: "",
+      useSubagents: true,
+    });
+    expect(subagents).toMatchObject({
+      runPlanImprove: false,
+      runPostVerify: false,
+    });
+    testDb.current
+      .update(projects)
+      .set({
+        defaultSkipReview: null,
+        defaultRunPlanImprove: null,
+        defaultRunPostVerify: null,
+      })
+      .run();
+    expect(
+      createTask({ projectId: PROJECT_ID, title: "Reset", description: "" }),
+    ).toMatchObject({
+      skipReview: false,
+      runPlanImprove: false,
+      runPostVerify: false,
+    });
+  });
+
   it("applies project task_defaults when flags are omitted", () => {
     writeTaskDefaults(
       "task_defaults:\n  autoMode: false\n  plannerMode: full\n  skipReview: true\n  useSubagents: false\n  planTests: true\n  maxReviewIterations: 2\n",

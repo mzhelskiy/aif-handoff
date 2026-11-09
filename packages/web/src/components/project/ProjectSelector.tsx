@@ -89,6 +89,37 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect, canManage = 
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [rootPath, setRootPath] = useState("");
+  const [branchRoot, setBranchRoot] = useState("");
+  const [selectedWorkingBranch, setWorkingBranch] = useState("");
+  const [branchSelectionChanged, setBranchSelectionChanged] = useState(false);
+  const {
+    data: branchOptions,
+    isFetching: branchesLoading,
+    error: branchError,
+  } = useQuery({
+    queryKey: ["projectBranches", branchRoot, editingId],
+    queryFn: () => api.getProjectBranches(branchRoot, editingId ?? undefined),
+    enabled: dialogOpen && Boolean(branchRoot) && branchRoot === rootPath.trim(),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (!dialogOpen) return;
+    const timeout = setTimeout(() => setBranchRoot(rootPath.trim()), 250);
+    return () => clearTimeout(timeout);
+  }, [dialogOpen, rootPath]);
+
+  const workingBranch = branchSelectionChanged
+    ? selectedWorkingBranch
+    : branchRoot === rootPath.trim()
+      ? (branchOptions?.workingBranch ??
+        (dialogMode === "create" ? branchOptions?.currentBranch : null) ??
+        "")
+      : "";
+  const [boardLayout, setBoardLayout] = useState<"compact" | "detailed">("compact");
+  const [defaultSkipReview, setDefaultSkipReview] = useState<boolean | null>(null);
+  const [defaultRunPlanImprove, setDefaultRunPlanImprove] = useState<boolean | null>(null);
+  const [defaultRunPostVerify, setDefaultRunPostVerify] = useState<boolean | null>(null);
   const [groupName, setGroupName] = useState("");
   const [plannerMaxBudgetUsd, setPlannerMaxBudgetUsd] = useState("");
   const [planCheckerMaxBudgetUsd, setPlanCheckerMaxBudgetUsd] = useState("");
@@ -208,7 +239,14 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect, canManage = 
     setBudgetsOpen(false);
     setEditingId(null);
     setName("");
+    setBoardLayout("compact");
+    setDefaultSkipReview(null);
+    setDefaultRunPlanImprove(null);
+    setDefaultRunPostVerify(null);
     setRootPath("");
+    setBranchRoot("");
+    setWorkingBranch("");
+    setBranchSelectionChanged(false);
     setGroupName("");
     setPlannerMaxBudgetUsd("");
     setPlanCheckerMaxBudgetUsd("");
@@ -234,7 +272,14 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect, canManage = 
     setBudgetsOpen(false);
     setEditingId(p.id);
     setName(p.name);
+    setBoardLayout(p.boardLayout ?? "compact");
+    setDefaultSkipReview(p.defaultSkipReview ?? null);
+    setDefaultRunPlanImprove(p.defaultRunPlanImprove ?? null);
+    setDefaultRunPostVerify(p.defaultRunPostVerify ?? null);
     setRootPath(p.rootPath);
+    setBranchRoot(p.rootPath);
+    setWorkingBranch("");
+    setBranchSelectionChanged(false);
     setGroupName(p.groupName ?? "");
     setPlannerMaxBudgetUsd(p.plannerMaxBudgetUsd == null ? "" : String(p.plannerMaxBudgetUsd));
     setPlanCheckerMaxBudgetUsd(
@@ -330,6 +375,12 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect, canManage = 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !rootPath.trim()) return;
+    const branchChanged =
+      branchOptions?.isRepository &&
+      branchRoot === rootPath.trim() &&
+      (dialogMode === "create" || branchSelectionChanged);
+    if (workingBranch && parallelEnabled) return;
+    const branchInput = branchChanged ? { workingBranch: workingBranch || null } : {};
     const parsedPlannerBudget = plannerMaxBudgetUsd.trim()
       ? Number(plannerMaxBudgetUsd)
       : undefined;
@@ -358,6 +409,11 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect, canManage = 
         {
           name: name.trim(),
           rootPath: rootPath.trim(),
+          ...branchInput,
+          boardLayout,
+          defaultSkipReview,
+          defaultRunPlanImprove,
+          defaultRunPostVerify,
           plannerMaxBudgetUsd: parsedPlannerBudget,
           planCheckerMaxBudgetUsd: parsedPlanCheckerBudget,
           implementerMaxBudgetUsd: parsedImplementerBudget,
@@ -393,6 +449,11 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect, canManage = 
           input: {
             name: name.trim(),
             rootPath: rootPath.trim(),
+            ...branchInput,
+            boardLayout,
+            defaultSkipReview,
+            defaultRunPlanImprove,
+            defaultRunPostVerify,
             plannerMaxBudgetUsd: parsedPlannerBudget,
             planCheckerMaxBudgetUsd: parsedPlanCheckerBudget,
             implementerMaxBudgetUsd: parsedImplementerBudget,
@@ -688,13 +749,138 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect, canManage = 
               <Input
                 placeholder="/Users/me/projects/my-project"
                 value={rootPath}
-                onChange={(e) => setRootPath(e.target.value)}
+                aria-label="Root Path"
+                onChange={(e) => {
+                  setRootPath(e.target.value);
+                  setWorkingBranch("");
+                  setBranchSelectionChanged(false);
+                }}
                 className="font-mono text-sm"
               />
               <p className="mt-1 text-xs text-muted-foreground">
                 Absolute path where agents will create files. In Docker, paths are stored under
                 PROJECTS_MOUNT; host paths under PROJECTS_DIR use the same mount.
               </p>
+            </div>
+            <fieldset className="space-y-3 border border-border p-3">
+              <legend className="px-1 text-sm font-medium">Board and workflow</legend>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Board layout</label>
+                <Select
+                  aria-label="Board layout"
+                  value={boardLayout}
+                  onChange={(event) =>
+                    setBoardLayout(event.target.value === "detailed" ? "detailed" : "compact")
+                  }
+                  options={[
+                    { value: "compact", label: "Compact — 5 columns" },
+                    { value: "detailed", label: "Detailed — all stages" },
+                  ]}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Compact groups stages and shows Needs Attention only for blocked tasks. Exact
+                  stages remain on cards.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Review new tasks</label>
+                <Select
+                  aria-label="Review new tasks"
+                  value={defaultSkipReview == null ? "" : defaultSkipReview ? "off" : "on"}
+                  onChange={(event) =>
+                    setDefaultSkipReview(
+                      event.target.value === "" ? null : event.target.value === "off",
+                    )
+                  }
+                  options={[
+                    { value: "", label: "Use existing defaults" },
+                    { value: "on", label: "Enabled" },
+                    { value: "off", label: "Disabled" },
+                  ]}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Improve new plans</label>
+                <Select
+                  aria-label="Improve new plans"
+                  value={defaultRunPlanImprove == null ? "" : defaultRunPlanImprove ? "on" : "off"}
+                  onChange={(event) =>
+                    setDefaultRunPlanImprove(
+                      event.target.value === "" ? null : event.target.value === "on",
+                    )
+                  }
+                  options={[
+                    { value: "", label: "Use existing defaults" },
+                    { value: "on", label: "Enabled" },
+                    { value: "off", label: "Disabled" },
+                  ]}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Verify new implementations</label>
+                <Select
+                  aria-label="Verify new implementations"
+                  value={defaultRunPostVerify == null ? "" : defaultRunPostVerify ? "on" : "off"}
+                  onChange={(event) =>
+                    setDefaultRunPostVerify(
+                      event.target.value === "" ? null : event.target.value === "on",
+                    )
+                  }
+                  options={[
+                    { value: "", label: "Use existing defaults" },
+                    { value: "on", label: "Enabled" },
+                    { value: "off", label: "Disabled" },
+                  ]}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Stage defaults apply to new tasks and can be overridden per task. Existing tasks
+                keep their settings. Improve and Verify apply in skills mode; subagent workflows
+                manage their own passes.
+              </p>
+            </fieldset>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Working branch</label>
+              <Select
+                aria-label="Working branch"
+                searchable
+                searchPlaceholder="Search branches"
+                value={workingBranch}
+                disabled={
+                  !branchOptions?.isRepository || branchesLoading || branchRoot !== rootPath.trim()
+                }
+                onChange={(event) => {
+                  setWorkingBranch(event.target.value);
+                  setBranchSelectionChanged(true);
+                }}
+                options={[
+                  {
+                    value: "",
+                    label: branchesLoading ? "Loading branches…" : "Keep existing Git settings",
+                  },
+                  ...(branchOptions?.branches ?? []).map((branch) => ({
+                    value: branch,
+                    label: branch === branchOptions?.currentBranch ? `${branch} (current)` : branch,
+                  })),
+                  ...(workingBranch && !branchOptions?.branches?.includes(workingBranch)
+                    ? [{ value: workingBranch, label: `${workingBranch} (missing)` }]
+                    : []),
+                ]}
+              />
+              <p className="text-xs text-muted-foreground">
+                Tasks run in the selected local branch without creating task branches. Saving does
+                not switch the checkout. A switch at task start requires a clean working tree.
+              </p>
+              {branchError && (
+                <p className="text-xs text-destructive">
+                  Could not load branches. Check the project path.
+                </p>
+              )}
+              {workingBranch && parallelEnabled && (
+                <p className="text-xs text-destructive">
+                  Turn off parallel execution to use one working branch.
+                </p>
+              )}
             </div>
             {dialogMode === "edit" && githubIssuePrEnabled && (
               <div>
@@ -922,6 +1108,7 @@ export function ProjectSelector({ selectedId, onSelect, onDeselect, canManage = 
               disabled={
                 !name.trim() ||
                 !rootPath.trim() ||
+                Boolean(workingBranch && parallelEnabled) ||
                 (plannerMaxBudgetUsd.trim() !== "" &&
                   (!Number.isFinite(Number(plannerMaxBudgetUsd)) ||
                     Number(plannerMaxBudgetUsd) <= 0)) ||

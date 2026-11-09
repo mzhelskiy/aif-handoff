@@ -72,6 +72,8 @@ export interface AifProjectLanguage {
 }
 
 export interface AifProjectTaskDefaults {
+  runPlanImprove?: boolean;
+  runPostVerify?: boolean;
   autoMode?: boolean;
   plannerMode?: "fast" | "full";
   skipReview?: boolean;
@@ -191,9 +193,32 @@ function normalizeTaskDefaults(raw: unknown): AifProjectTaskDefaults {
     plannerMode:
       obj.plannerMode === "fast" || obj.plannerMode === "full" ? obj.plannerMode : undefined,
     skipReview: typeof obj.skipReview === "boolean" ? obj.skipReview : undefined,
+    runPlanImprove: typeof obj.runPlanImprove === "boolean" ? obj.runPlanImprove : undefined,
+    runPostVerify: typeof obj.runPostVerify === "boolean" ? obj.runPostVerify : undefined,
     useSubagents: typeof obj.useSubagents === "boolean" ? obj.useSubagents : undefined,
     planTests: typeof obj.planTests === "boolean" ? obj.planTests : undefined,
     maxReviewIterations: normalizeMaxReviewIterations(obj.maxReviewIterations),
+  };
+}
+
+/** Saved project choices override YAML; null preserves the existing default chain. */
+export function resolveProjectStageDefaults(
+  defaults: AifProjectTaskDefaults,
+  project?: {
+    defaultSkipReview?: boolean | null;
+    defaultRunPlanImprove?: boolean | null;
+    defaultRunPostVerify?: boolean | null;
+  },
+): AifProjectTaskDefaults {
+  return {
+    ...defaults,
+    ...(project?.defaultSkipReview != null ? { skipReview: project.defaultSkipReview } : {}),
+    ...(project?.defaultRunPlanImprove != null
+      ? { runPlanImprove: project.defaultRunPlanImprove }
+      : {}),
+    ...(project?.defaultRunPostVerify != null
+      ? { runPostVerify: project.defaultRunPostVerify }
+      : {}),
   };
 }
 

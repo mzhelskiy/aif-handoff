@@ -323,6 +323,12 @@ export function useWebSocket(enabled = true) {
         return;
       }
 
+      if (data.type === "project:updated") {
+        queryClient.invalidateQueries({ queryKey: ["projects"] });
+        queryClient.invalidateQueries({ queryKey: ["projectDefaults"] });
+        return;
+      }
+
       if (data.type === "project:organization_updated") {
         queryClient.invalidateQueries({ queryKey: ["projects"] });
         return;

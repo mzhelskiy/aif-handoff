@@ -44,6 +44,11 @@ function ensureTables(sqlite: Database.Database): void {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       root_path TEXT NOT NULL,
+      working_branch TEXT,
+      board_layout TEXT NOT NULL DEFAULT 'compact' CHECK (board_layout IN ('compact', 'detailed')),
+      default_skip_review INTEGER,
+      default_run_plan_improve INTEGER,
+      default_run_post_verify INTEGER,
       planner_max_budget_usd REAL,
       plan_checker_max_budget_usd REAL,
       implementer_max_budget_usd REAL,
@@ -1146,6 +1151,21 @@ const MIGRATIONS: Migration[] = [
         objective_id TEXT REFERENCES thread_objectives(id) ON DELETE SET NULL,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
       );
+    `,
+  },
+  {
+    version: 32,
+    description: "Persist the selected working branch independently of project checkouts",
+    sql: `ALTER TABLE projects ADD COLUMN working_branch TEXT;`,
+  },
+  {
+    version: 33,
+    description: "Add project board layout and optional task stage defaults",
+    sql: `
+      ALTER TABLE projects ADD COLUMN board_layout TEXT NOT NULL DEFAULT 'compact' CHECK (board_layout IN ('compact', 'detailed'));
+      ALTER TABLE projects ADD COLUMN default_skip_review INTEGER;
+      ALTER TABLE projects ADD COLUMN default_run_plan_improve INTEGER;
+      ALTER TABLE projects ADD COLUMN default_run_post_verify INTEGER;
     `,
   },
 ];

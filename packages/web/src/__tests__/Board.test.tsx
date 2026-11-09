@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { TaskListItem } from "@aif/shared/browser";
+import { TASK_STATUSES, type TaskListItem } from "@aif/shared/browser";
 
 function makeTask(overrides: Partial<TaskListItem> = {}): TaskListItem {
   return {
@@ -79,6 +79,9 @@ vi.mock("@/hooks/useAuth", () => ({
   }),
 }));
 
+const mockProject = { id: "test-project", boardLayout: "detailed" };
+vi.mock("@/hooks/useProjects", () => ({ useProjects: () => ({ data: [mockProject] }) }));
+
 const { Board } = await import("@/components/kanban/Board");
 
 function Wrapper({ children }: { children: React.ReactNode }) {
@@ -105,6 +108,49 @@ function expectTaskBefore(column: HTMLElement, firstTitle: string, secondTitle: 
 }
 
 describe("Board", () => {
+  it("groups every status exactly once and preserves exact stages on compact cards", () => {
+    const length = mockTasks.length;
+    mockProject.boardLayout = "compact";
+    for (const status of TASK_STATUSES)
+      mockTasks.push(makeTask({ id: `group-${status}`, title: `Task in ${status}`, status }));
+    try {
+      render(<Board projectId="test-project" onTaskClick={vi.fn()} density="comfortable" />, {
+        wrapper: Wrapper,
+      });
+      expect(screen.getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
+        "Backlog",
+        "Planning",
+        "Plan Ready",
+        "In Progress",
+        "Needs Attention",
+        "Done",
+      ]);
+      for (const status of TASK_STATUSES)
+        expect(screen.getAllByText(`Task in ${status}`)).toHaveLength(1);
+      expect(within(getColumn("Planning")).getByText("Task in improve")).toBeDefined();
+      for (const status of ["implementing", "review", "verify"])
+        expect(within(getColumn("In Progress")).getByText(`Task in ${status}`)).toBeDefined();
+      expect(within(getColumn("Done")).getByLabelText("Task stage: Verified")).toBeDefined();
+      expect(within(getColumn("Done")).getByLabelText("Task stage: Done")).toBeDefined();
+    } finally {
+      mockProject.boardLayout = "detailed";
+      mockTasks.splice(length);
+    }
+  });
+
+  it("shows only five compact columns when there are no blocked tasks", () => {
+    mockProject.boardLayout = "compact";
+    try {
+      render(<Board projectId="test-project" onTaskClick={vi.fn()} density="compact" />, {
+        wrapper: Wrapper,
+      });
+      expect(screen.getAllByRole("heading")).toHaveLength(5);
+      expect(screen.queryByRole("heading", { name: "Needs Attention" })).toBeNull();
+    } finally {
+      mockProject.boardLayout = "detailed";
+    }
+  });
+
   it("should render status columns", () => {
     render(<Board projectId="test-project" onTaskClick={vi.fn()} density="comfortable" />, {
       wrapper: Wrapper,

@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
-import { jsonValidator } from "../middleware/zodValidator.js";
+import { jsonValidator, queryValidator } from "../middleware/zodValidator.js";
 import { internalBroadcastAuth } from "../middleware/internalBroadcastAuth.js";
-import { logger, getEnv, getProjectConfig } from "@aif/shared";
+import { logger, getEnv, getProjectConfig, resolveProjectStageDefaults } from "@aif/shared";
 import {
   clearActiveRuntimeWarmupSessions,
   createRuntimeWarmupSession,
@@ -11,12 +11,14 @@ import {
   findActiveReadyRuntimeWarmupSession,
   findRuntimeProfileById,
   findTaskById,
+  hasActiveLockedTaskForProject,
   markRuntimeWarmupSessionFailed,
   markRuntimeWarmupSessionReady,
   type RuntimeWarmupSessionRow,
 } from "@aif/data";
 import {
   createProjectSchema,
+  projectBranchesQuerySchema,
   roadmapImportSchema,
   roadmapGenerateSchema,
   broadcastProjectSchema,
@@ -25,6 +27,8 @@ import {
   updateProjectSchema,
   updateProjectOrganizationSchema,
 } from "../schemas.js";
+import { validateProjectRootPath } from "@aif/shared";
+import { getProjectBranches } from "../services/projectGit.js";
 import { getAutoQueueMode, setAutoQueueMode } from "@aif/data";
 import { broadcast } from "../ws.js";
 import {
@@ -36,6 +40,7 @@ import {
   updateProjectOrganization,
   deleteProject,
   getProjectMcpServers,
+  mapProjectPathToContainer,
 } from "../repositories/projects.js";
 import { toTaskBroadcastPayload } from "../repositories/tasks.js";
 import {
@@ -208,6 +213,17 @@ projectsRouter.get("/overview", (c) => {
   return c.json(overview);
 });
 
+// Local refs only: inspecting branch options never fetches or changes the checkout.
+projectsRouter.get("/branches", queryValidator(projectBranchesQuerySchema), (c) => {
+  const rootPath = mapProjectPathToContainer(c.req.valid("query").rootPath);
+  const error = validateProjectRootPath(rootPath);
+  if (error) return c.json({ error }, 400);
+  const { projectId } = c.req.valid("query");
+  const project = projectId ? findProjectById(projectId) : undefined;
+  if (projectId && !project) return c.json({ error: "Project not found" }, 404);
+  return c.json({ ...getProjectBranches(rootPath), workingBranch: project?.workingBranch ?? null });
+});
+
 // POST /projects
 projectsRouter.post("/", jsonValidator(createProjectSchema), async (c) => {
   const body = c.req.valid("json");
@@ -284,10 +300,22 @@ projectsRouter.put("/:id", jsonValidator(updateProjectSchema), async (c) => {
     return c.json({ error: unsupportedParallelAutoQueue }, 400);
   }
 
+  if (
+    body.workingBranch !== undefined &&
+    body.workingBranch !== (existing.workingBranch ?? null) &&
+    hasActiveLockedTaskForProject(id)
+  ) {
+    return c.json(
+      { error: "Wait for active project tasks to stop before changing the working branch." },
+      409,
+    );
+  }
   const { project: updated, pathError } = updateProject(id, body);
   if (pathError) return c.json({ error: pathError }, 400);
+  if (!updated) return c.json({ error: "Project not found" }, 404);
 
   log.debug({ projectId: id }, "Project updated");
+  broadcast({ type: "project:updated", payload: updated });
   return c.json(updated);
 });
 
@@ -332,7 +360,11 @@ projectsRouter.get("/:id/defaults", (c) => {
   const cfg = getProjectConfig(project.rootPath);
   // taskDefaults lets the create-task form seed the same values createTask
   // would resolve, so the form shows what the project will actually apply.
-  return c.json({ paths: cfg.paths, workflow: cfg.workflow, taskDefaults: cfg.task_defaults });
+  return c.json({
+    paths: cfg.paths,
+    workflow: cfg.workflow,
+    taskDefaults: resolveProjectStageDefaults(cfg.task_defaults, project),
+  });
 });
 
 // GET /projects/:id/roadmap/status — check if ROADMAP.md exists for the project
