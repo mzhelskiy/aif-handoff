@@ -379,7 +379,7 @@ export function TaskDetail({ taskId, onClose }: TaskDetailProps) {
               onClick={() => {
                 actions.setShowApproveDoneConfirm(false);
                 actions.setDeletePlanOnApprove(false);
-                actions.setCommitOnApprove(true);
+                actions.setCommitOnApprove(false);
               }}
             >
               Cancel

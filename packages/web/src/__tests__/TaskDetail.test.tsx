@@ -359,9 +359,7 @@ describe("TaskDetail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(screen.getByText("Approve done task?")).toBeDefined();
 
-    // Uncheck the commit box so the modal closes synchronously (legacy path).
-    const checkboxes = screen.getAllByRole("checkbox");
-    fireEvent.click(checkboxes[1]); // commit checkbox
+    expect(screen.getByRole("checkbox", { name: "Create commit (/aif-commit)" })).not.toBeChecked();
     fireEvent.click(screen.getAllByRole("button", { name: "Approve" })[1]);
 
     expect(mutateTaskEvent).toHaveBeenCalledWith({
@@ -373,14 +371,26 @@ describe("TaskDetail", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("resets commit opt-in every time the approval dialog is opened", () => {
+    render(<TaskDetail taskId="detail-done" onClose={vi.fn()} />, { wrapper: Wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    const commit = screen.getByRole("checkbox", { name: "Create commit (/aif-commit)" });
+    fireEvent.click(commit);
+    expect(commit).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(screen.getByRole("checkbox", { name: "Create commit (/aif-commit)" })).not.toBeChecked();
+  });
+
   it("keeps modal open while commit is pending and closes on WS commit_done", () => {
     const onClose = vi.fn();
     render(<TaskDetail taskId="detail-done" onClose={onClose} />, { wrapper: Wrapper });
 
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Create commit (/aif-commit)" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Approve" })[1]);
 
-    // Mutation fires with commit=true (default).
+    // Explicit opt-in is required for this approval.
     expect(mutateTaskEvent).toHaveBeenCalledWith({
       id: "detail-done",
       event: "approve_done",
@@ -407,6 +417,7 @@ describe("TaskDetail", () => {
     render(<TaskDetail taskId="detail-done" onClose={onClose} />, { wrapper: Wrapper });
 
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Create commit (/aif-commit)" }));
     fireEvent.click(screen.getAllByRole("button", { name: "Approve" })[1]);
 
     act(() => {
@@ -428,7 +439,6 @@ describe("TaskDetail", () => {
     expect(screen.getByText("Delete plan file (FIX_PLAN.md)")).toBeDefined();
     const checkboxes = screen.getAllByRole("checkbox");
     fireEvent.click(checkboxes[0]); // delete plan file checkbox
-    fireEvent.click(checkboxes[1]); // commit checkbox (uncheck) to close modal synchronously
     fireEvent.click(screen.getAllByRole("button", { name: "Approve" })[1]);
 
     expect(mutateTaskEvent).toHaveBeenCalledWith({

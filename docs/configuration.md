@@ -26,6 +26,14 @@ REST and MCP creation use the same data-layer resolution. The new-task form read
 the effective settings from `GET /projects/:id/defaults`. Updates broadcast
 `project:updated`, refreshing board settings and creation defaults in other clients.
 
+## Approving completed tasks
+
+**Create commit (/aif-commit)** starts unchecked in every approval dialog, for all
+existing and new projects. Selecting it is an explicit choice for that approval;
+closing and reopening the dialog resets it. Approving without that opt-in marks the
+task Verified without requesting a commit. API callers must likewise explicitly
+send `commitOnApprove: true` to request a commit.
+
 ## Project working branch
 
 The project creation and settings dialogs provide a **Working branch** selector for

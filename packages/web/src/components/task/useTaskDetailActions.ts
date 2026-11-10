@@ -283,7 +283,7 @@ export function useTaskDetailActions(task: Task | undefined, onClose: () => void
   // --- Approve done confirm ---
   const [showApproveDoneConfirm, setShowApproveDoneConfirm] = useState(false);
   const [deletePlanOnApprove, setDeletePlanOnApprove] = useState(false);
-  const [commitOnApprove, setCommitOnApprove] = useState(true);
+  const [commitOnApprove, setCommitOnApprove] = useState(false);
   // When the user asks for a commit on approve, the server runs `/aif-commit`
   // as a fire-and-forget background task and broadcasts the result over WS.
   // We keep the modal open with a spinner until the WS ack arrives, so the
@@ -359,6 +359,8 @@ export function useTaskDetailActions(task: Task | undefined, onClose: () => void
         return;
       }
       if (action.event === "approve_done") {
+        // Committing is an explicit choice for this approval, never a remembered default.
+        setCommitOnApprove(false);
         setShowApproveDoneConfirm(true);
         return;
       }
